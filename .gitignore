@@ -3,6 +3,28 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Visual Studio
+.vs/
+Debug/
+Release/
+x64/
+*.obj
+*.lib
+*.exp
+*.sdf
+*.pdb
+*.ipch
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# DLLs
+*.dll
+
+
+
 # User-specific files
 *.rsuser
 *.suo
