@@ -1,0 +1,5 @@
+; bridge.def
+LIBRARY PuentePrueba
+EXPORTS
+    pruebaPuente @1
+    moverJugadorAsm @2
