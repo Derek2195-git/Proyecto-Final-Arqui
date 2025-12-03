@@ -3,3 +3,5 @@ LIBRARY PuentePrueba
 EXPORTS
     pruebaPuente @1
     moverJugadorAsm @2
+    definirValorAsm @3
+    actualizarPosicionEnemigosAsm @4
