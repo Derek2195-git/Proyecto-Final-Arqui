@@ -5,3 +5,7 @@ EXPORTS
     moverJugadorAsm @2
     definirValorAsm @3
     actualizarPosicionEnemigosAsm @4
+    initEnemigos @5
+    updateAllEnemigos @6
+    checkFormationBounds @7
+    getEnemigoData @8
