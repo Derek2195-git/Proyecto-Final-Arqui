@@ -2,7 +2,7 @@ import pygame
 import enemigos
 
 from ctypes import WinDLL, c_int, byref
-from test_bridge import moverJugador, definirValor, actualizarPosicionEnemigos, init_enemigos, update_all_enemigos, \
+from test_bridge import moverJugador, init_enemigos, update_all_enemigos, \
     get_enemigo_data
 try:
     dll = WinDLL(r"C:\Users\Keraf\source\repos\PuentePrueba\Debug\PuentePrueba.dll")
@@ -13,15 +13,15 @@ except Exception as e:
 # Creación de la ventana aqui
 pygame.init()
 pygame.mixer.init()
-pygame.mixer.music.load("Expedition33_GestralBeach.mp3")
+pygame.mixer.music.load("../recursos/Expedition33_GestralBeach.mp3")
 #pygame.mixer.music.play(-1)
 WIDTH = 400
 HEIGHT = 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Space Invaders - La prueba")
 
-player_img = pygame.image.load("naveprincipal.png").convert_alpha()
-enemy_img = pygame.image.load("naveprincipal.png").convert_alpha()
+player_img = pygame.image.load("../recursos/naveprincipal.png").convert_alpha()
+enemy_img = pygame.image.load("../recursos/naveprincipal.png").convert_alpha()
 player_img = pygame.transform.scale(player_img, (50, 50))
 enemy_img = pygame.transform.scale(enemy_img, (50, 50))
 
