@@ -28,8 +28,8 @@ SIZE_ENEMIGO EQU 20  ; 5 campos * 4 bytes = 20 bytes
 SIZE_DISPARO_JUGADOR EQU 20  ; 5 campos * 4 bytes
 
 MAX_DISPAROS_JUGADOR EQU 5   ; M?ximo 5 balas en pantalla
-
-
+MAX_DISPAROS_ENEMIGOS EQU 20
+HEIGHT_SCREEN EQU 600
 .data
 MAX_ENEMIGOS EQU 10
 ; Tama?os de sprites
@@ -43,7 +43,12 @@ ENEMY_SPACING_X EQU 40   ; 40 p?xeles entre enemigos (32 + 8)
 ENEMY_SPACING_Y EQU 25   ; 25 p?xeles entre filas (16 + 9)
 
 ; Arrays de disparos
+disparos_enemigos DisparoJugador MAX_DISPAROS_ENEMIGOS DUP(<>)
 disparos_jugador DisparoJugador MAX_DISPAROS_JUGADOR DUP(<>)
+
+disparo_timer DWORD 0
+DISPARO_INTERVAL EQU 120  ; Frames entre disparos (2 segundos a 60 FPS)
+PROBABILIDAD_DISPARO EQU 15  ; 15% de probabilidad por enemigo
 
 ; Puntuacion
 puntuacion_actual DWORD 0
@@ -54,7 +59,7 @@ puntos_por_enemigo DWORD 1000
 enemigos_array EnemigoSI MAX_ENEMIGOS DUP(<>)
 enemigo_count DWORD 0
 
-; Variables para la formaci?n
+; Variables para la formacion
 formation_direction DWORD 1  ; 1 = derecha, -1 = izquierda
 should_descend DWORD 0       ; 0 = no, 1 = s? bajar
 formation_speed DWORD 7
@@ -68,6 +73,7 @@ PUBLIC actualizarPosicionEnemigosAsm, initEnemigos, updateAllEnemigos, getEnemig
 PUBLIC crearDisparoJugador, actualizarDisparosJugador, getDisparoJugadorData
 PUBLIC checkColisionBalaEnemigo, updateColisiones, getEnemigosVivos
 PUBLIC getPuntuacion, addPuntuacion, resetPuntuacion, checkColisionConPuntos
+PUBLIC crearDisparoEnemigo, actualizarDisparosEnemigos, getDisparoEnemigoData, intentarDisparoEnemigo
 
 ; pruebaPuente: recibe (int a, int b) -> devuelve a + b
 pruebaPuente PROC a:DWORD, b:DWORD
@@ -739,6 +745,223 @@ p_siguiente_bala:
     POP ebx
     RET
 checkColisionConPuntos ENDP
+
+; ===== CREAR DISPARO ENEMIGO (SIMPLIFICADO) =====
+crearDisparoEnemigo PROC
+    ; Parámetros en pila: pos_x (4 bytes), pos_y (4 bytes)
+    PUSH ebp
+    MOV ebp, esp
+    
+    PUSH ebx
+    PUSH esi
+    PUSH ecx
+    
+    ; Buscar slot libre
+    XOR ecx, ecx
+    
+buscar_slot_enemigo:    
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_enemigos[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE slot_encontrado_enemigo
+    
+    INC ecx
+    CMP ecx, MAX_DISPAROS_ENEMIGOS
+    JL buscar_slot_enemigo
+    
+    ; No hay slots disponibles
+    JMP fin_crear_enemigo
+    
+slot_encontrado_enemigo:
+    ; Obtener parámetros
+    MOV eax, [ebp + 8]  ; pos_x
+    MOV ebx, [ebp + 12] ; pos_y
+    
+    ; Configurar disparo (de enemigo)
+    ADD eax, 16         ; ENEMY_WIDTH/2 = 16
+    SUB eax, 2          ; BULLET_WIDTH/2 = 2
+    MOV [esi + DisparoJugador.x], eax
+    
+    ADD ebx, ENEMY_HEIGHT ; Salir desde la base del enemigo
+    MOV [esi + DisparoJugador.y], ebx
+    
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 1
+    MOV DWORD PTR [esi + DisparoJugador.speed], 5  ; Velocidad
+    MOV DWORD PTR [esi + DisparoJugador.tipo], 1   ; Tipo enemigo
+    
+fin_crear_enemigo:
+    POP ecx
+    POP esi
+    POP ebx
+    POP ebp
+    RET 8  ; Limpiar 2 parámetros
+crearDisparoEnemigo ENDP
+
+; ===== ACTUALIZAR DISPAROS ENEMIGOS (SIMPLIFICADO) =====
+actualizarDisparosEnemigos PROC
+    PUSH esi
+    PUSH ecx
+    
+    XOR ecx, ecx
+    
+actualizar_loop_enemigo:
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_enemigos[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE siguiente_enemigo
+    
+    ; Mover disparo hacia abajo
+    MOV eax, [esi + DisparoJugador.y]
+    ADD eax, [esi + DisparoJugador.speed]
+    MOV [esi + DisparoJugador.y], eax
+    
+    ; Verificar si salió de pantalla (abajo)
+    CMP eax, HEIGHT_SCREEN
+    JL siguiente_enemigo
+    
+    ; Desactivar si salió
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 0
+    
+siguiente_enemigo:
+    INC ecx
+    CMP ecx, MAX_DISPAROS_ENEMIGOS
+    JL actualizar_loop_enemigo
+    
+    POP ecx
+    POP esi
+    RET
+actualizarDisparosEnemigos ENDP
+
+; ===== OBTENER DATOS DE DISPARO ENEMIGO (SIMPLIFICADO) =====
+getDisparoEnemigoData PROC
+    ; Parámetros: index (4), out_x (4), out_y (4), out_active (4)
+    PUSH ebp
+    MOV ebp, esp
+    
+    PUSH esi
+    PUSH ebx
+    
+    MOV eax, [ebp + 8]  ; index
+    CMP eax, MAX_DISPAROS_ENEMIGOS
+    JGE error_enemigo
+    
+    ; Calcular posición en array
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_enemigos[eax]
+    
+    ; Devolver datos
+    MOV eax, [esi + DisparoJugador.x]
+    MOV ebx, [ebp + 12] ; out_x
+    MOV [ebx], eax
+    
+    MOV eax, [esi + DisparoJugador.y]
+    MOV ebx, [ebp + 16] ; out_y
+    MOV [ebx], eax
+    
+    MOV eax, [esi + DisparoJugador.is_active]
+    MOV ebx, [ebp + 20] ; out_active
+    MOV [ebx], eax
+    
+    MOV eax, 1
+    JMP fin_get_enemigo
+    
+error_enemigo:
+    XOR eax, eax
+    
+fin_get_enemigo:
+    POP ebx
+    POP esi
+    POP ebp
+    RET 16  ; Limpiar 4 parámetros
+getDisparoEnemigoData ENDP
+
+; ===== INTENTAR DISPARO ENEMIGO (CORREGIDO) =====
+intentarDisparoEnemigo PROC
+    PUSH ebx
+    PUSH esi
+    PUSH ecx
+    PUSH edi          ; Usar edi para contador en lugar de edx
+    
+    ; Contador de enemigos vivos
+    CALL getEnemigosVivos
+    MOV ebx, eax        ; ebx = cantidad de enemigos vivos
+    CMP ebx, 0
+    JE fin_intento
+    
+    ; Por cada enemigo vivo
+    XOR ecx, ecx
+    XOR edi, edi        ; edi = contador de disparos (0 inicial)
+    
+enemigo_disparo_loop:
+    MOV eax, ecx
+    MOV esi, SIZE_ENEMIGO
+    MUL esi
+    LEA esi, enemigos_array[eax]
+    
+    CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
+    JE siguiente_enemigo_disparo
+    
+    ; Aleatoriedad
+    MOV eax, [esi + EnemigoSI.x]
+    ADD eax, [esi + EnemigoSI.y]
+    ADD eax, ecx
+    
+    ; Obtener número 0-99
+    XOR edx, edx        ; edx se usa para división
+    PUSH ebx           ; Guardar ebx temporalmente
+    MOV ebx, 100
+    DIV ebx            ; edx = resto (0-99)
+    MOV eax, edx
+    POP ebx            ; Restaurar ebx
+    
+    ; ¡AUMENTAR PROBABILIDADES!
+    MOV ebx, [esi + EnemigoSI.y]
+    CMP ebx, 75
+    JG enemigo_abajo
+    
+    ; Enemigo arriba: 15% probabilidad
+    CMP eax, 15
+    JL disparar_enemigo
+    JMP siguiente_enemigo_disparo
+    
+enemigo_abajo:
+    ; Enemigo abajo: 25% probabilidad
+    CMP eax, 25        ; <-- ¡CORREGIDO!
+    JL disparar_enemigo
+    JMP siguiente_enemigo_disparo
+    
+disparar_enemigo:
+    MOV eax, [esi + EnemigoSI.x]
+    MOV ebx, [esi + EnemigoSI.y]
+    PUSH ebx
+    PUSH eax
+    CALL crearDisparoEnemigo
+    
+    ; Permitir hasta 5 disparos por ciclo
+    INC edi
+    CMP edi, 5
+    JGE fin_intento
+    
+siguiente_enemigo_disparo:
+    INC ecx
+    CMP ecx, enemigo_count
+    JL enemigo_disparo_loop
+    
+fin_intento:
+    POP edi
+    POP ecx
+    POP esi
+    POP ebx
+    RET
+intentarDisparoEnemigo ENDP
+
 
 
 END

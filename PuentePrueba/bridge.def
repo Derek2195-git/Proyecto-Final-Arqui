@@ -19,3 +19,8 @@ EXPORTS
     addPuntuacion @16  
     resetPuntuacion @17 
     checkColisionConPuntos @18
+    crearDisparoEnemigo @19 
+    actualizarDisparosEnemigos @20 
+    getDisparoEnemigoData @21
+    intentarDisparoEnemigo @22
+
