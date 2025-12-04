@@ -3,6 +3,10 @@
 .model flat, stdcall
 .stack 4096
 
+EXTERN GetTickCount@0:PROC
+GetTickCount EQU <GetTickCount@0>
+
+
 ; Definir estructura
 EnemigoSI STRUCT
     x           DWORD ?
@@ -12,10 +16,39 @@ EnemigoSI STRUCT
     is_alive    DWORD ?
 EnemigoSI ENDS
 
+DisparoJugador STRUCT
+    x           DWORD ?
+    y           DWORD ?
+    is_active   DWORD ?    ; 0 = inactivo, 1 = activo
+    speed       DWORD ?
+    tipo        DWORD ?    ; 0 = jugador, 1 = enemigo
+DisparoJugador ENDS
+
+
+
 SIZE_ENEMIGO EQU 20  ; 5 campos * 4 bytes = 20 bytes
+
+SIZE_DISPARO_JUGADOR EQU 20  ; 5 campos * 4 bytes
+
+MAX_DISPAROS_JUGADOR EQU 5   ; Máximo 5 balas en pantalla
+
 
 .data
 MAX_ENEMIGOS EQU 10
+; Tamaños de sprites
+ENEMY_WIDTH EQU 32    ; Ancho del enemigo
+ENEMY_HEIGHT EQU 16   ; Alto del enemigo
+BULLET_WIDTH EQU 5    ; Ancho de la bala
+BULLET_HEIGHT EQU 15  ; Alto de la bala
+
+; Espaciado entre enemigos
+ENEMY_SPACING_X EQU 40   ; 40 píxeles entre enemigos (32 + 8)
+ENEMY_SPACING_Y EQU 25   ; 25 píxeles entre filas (16 + 9)
+
+; Arrays de disparos
+disparos_jugador DisparoJugador MAX_DISPAROS_JUGADOR DUP(<>)
+
+
 
 ; Array de enemigos
 enemigos_array EnemigoSI MAX_ENEMIGOS DUP(<>)
@@ -24,14 +57,15 @@ enemigo_count DWORD 0
 ; Variables para la formación
 formation_direction DWORD 1  ; 1 = derecha, -1 = izquierda
 should_descend DWORD 0       ; 0 = no, 1 = sí bajar
-formation_speed DWORD 2
+formation_speed DWORD 7
 
 left_bound DWORD 9999
 right_bound DWORD -9999
 
 .code
-PUBLIC pruebaPuente, moverJugadorAsm, definirValorAsm, actualizarPosicionEnemigosAsm
-PUBLIC initEnemigos, updateAllEnemigos, getEnemigoData
+PUBLIC pruebaPuente, moverJugadorAsm, definirValorAsm
+PUBLIC actualizarPosicionEnemigosAsm, initEnemigos, updateAllEnemigos, getEnemigoData
+PUBLIC crearDisparoJugador, actualizarDisparosJugador, getDisparoJugadorData
 
 ; pruebaPuente: recibe (int a, int b) -> devuelve a + b
 pruebaPuente PROC a:DWORD, b:DWORD
@@ -56,7 +90,6 @@ initEnemigos PROC rows:DWORD, cols:DWORD
     XOR ecx, ecx
 
 init_loop:
-    ; Calcular dirección en memoria: índice * SIZE_ENEMIGO
     MOV eax, ecx
     MOV edx, SIZE_ENEMIGO
     MUL edx
@@ -67,19 +100,21 @@ init_loop:
     XOR edx, edx
     DIV cols          ; eax = fila, edx = columna
 
-    ; Guardar fila en ebx temporalmente
+    ; Guardar fila
     PUSH eax
     
-    ; Calcular x = col * 60 + 50
+    ; Calcular x = col * ENEMY_SPACING_X + 30 (margen izquierdo)
     MOV eax, edx      ; eax = columna
-    IMUL eax, 60
-    ADD eax, 50
+    MOV ebx, ENEMY_SPACING_X
+    MUL ebx
+    ADD eax, 30       ; Margen izquierdo
     MOV [esi + EnemigoSI.x], eax
     
-    ; Calcular y = fila * 60 + 50
+    ; Calcular y = fila * ENEMY_SPACING_Y + 50 (margen superior)
     POP eax           ; recuperar fila
-    IMUL eax, 60
-    ADD eax, 50
+    MOV ebx, ENEMY_SPACING_Y
+    MUL ebx
+    ADD eax, 50       ; Margen superior
     MOV [esi + EnemigoSI.y], eax
     
     ; Configurar velocidad y dirección
@@ -173,7 +208,7 @@ updateAllEnemigos PROC ancho_pantalla:DWORD
 
 check_right_bound:
     ; Verificar límite derecho (añadir ancho del sprite)
-    ADD edx, 50
+    ADD edx, ENEMY_WIDTH
     CMP edx, ancho_pantalla
     JL update_enemies
     
@@ -357,5 +392,116 @@ fin_funcion:
     POP ebx
     RET 20
 actualizarPosicionEnemigosAsm ENDP
+
+crearDisparoJugador PROC pos_x:DWORD, pos_y:DWORD
+    PUSH ebx
+    PUSH esi
+    PUSH ecx
+    
+    ; Buscar slot libre
+    XOR ecx, ecx
+    
+buscar_slot_jugador:
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_jugador[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE slot_encontrado_jugador
+    
+    INC ecx
+    CMP ecx, MAX_DISPAROS_JUGADOR
+    JL buscar_slot_jugador
+    
+    ; No hay slots disponibles
+    JMP fin_crear_jugador
+    
+slot_encontrado_jugador:
+    ; Configurar disparo
+    MOV eax, pos_x
+    ADD eax, 22          ; Centrar en la nave (asumiendo nave de 50px)
+    MOV [esi + DisparoJugador.x], eax
+    
+    MOV eax, pos_y
+    MOV [esi + DisparoJugador.y], eax
+    
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 1
+    MOV DWORD PTR [esi + DisparoJugador.speed], 8     ; Velocidad rápida hacia arriba
+    
+fin_crear_jugador:
+    POP ecx
+    POP esi
+    POP ebx
+    RET 8
+crearDisparoJugador ENDP
+
+; actualizarDisparosJugador: mueve todos los disparos activos
+actualizarDisparosJugador PROC
+    PUSH esi
+    PUSH ecx
+    
+    XOR ecx, ecx
+    
+actualizar_loop_jugador:
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_jugador[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE siguiente_jugador
+    
+    ; Mover disparo hacia arriba
+    MOV eax, [esi + DisparoJugador.y]
+    SUB eax, [esi + DisparoJugador.speed]
+    MOV [esi + DisparoJugador.y], eax
+    
+    ; Verificar si salió de pantalla (arriba)
+    CMP eax, 0
+    JG siguiente_jugador
+    
+    ; Desactivar si salió
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 0
+    
+siguiente_jugador:
+    INC ecx
+    CMP ecx, MAX_DISPAROS_JUGADOR
+    JL actualizar_loop_jugador
+    
+    POP ecx
+    POP esi
+    RET
+actualizarDisparosJugador ENDP
+
+; getDisparoJugadorData: obtiene datos de un disparo del jugador
+getDisparoJugadorData PROC index:DWORD, out_x:PTR DWORD, out_y:PTR DWORD, out_active:PTR DWORD
+    MOV eax, index
+    CMP eax, MAX_DISPAROS_JUGADOR
+    JGE error_jugador
+    
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_jugador[eax]
+    
+    MOV eax, [esi + DisparoJugador.x]
+    MOV ebx, out_x
+    MOV [ebx], eax
+    
+    MOV eax, [esi + DisparoJugador.y]
+    MOV ebx, out_y
+    MOV [ebx], eax
+    
+    MOV eax, [esi + DisparoJugador.is_active]
+    MOV ebx, out_active
+    MOV [ebx], eax
+    
+    MOV eax, 1
+    RET
+    
+error_jugador:
+    XOR eax, eax
+    RET 16
+getDisparoJugadorData ENDP
 
 END
