@@ -9,3 +9,6 @@ EXPORTS
     updateAllEnemigos @6
     checkFormationBounds @7
     getEnemigoData @8
+    crearDisparoJugador @9
+    actualizarDisparosJugador @10
+    getDisparoJugadorData @11
