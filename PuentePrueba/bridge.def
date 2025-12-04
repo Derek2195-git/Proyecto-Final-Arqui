@@ -25,3 +25,8 @@ EXPORTS
     intentarDisparoEnemigo @22
     checkColisionBalaEnemigoJugador @23
     checkColisionEnemigoJugador @24
+    checkEnemigosEnBase @25
+    getNivelDificultad @26 
+    setNivelDificultad @27 
+    actualizarDificultad @28
+
