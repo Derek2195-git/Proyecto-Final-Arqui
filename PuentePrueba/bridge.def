@@ -12,3 +12,10 @@ EXPORTS
     crearDisparoJugador @9
     actualizarDisparosJugador @10
     getDisparoJugadorData @11
+    checkColisionBalaEnemigo @12
+    updateColisiones @13
+    getEnemigosVivos @14
+    getPuntuacion @15
+    addPuntuacion @16  
+    resetPuntuacion @17 
+    checkColisionConPuntos @18

@@ -3,9 +3,6 @@
 .model flat, stdcall
 .stack 4096
 
-EXTERN GetTickCount@0:PROC
-GetTickCount EQU <GetTickCount@0>
-
 
 ; Definir estructura
 EnemigoSI STRUCT
@@ -30,33 +27,36 @@ SIZE_ENEMIGO EQU 20  ; 5 campos * 4 bytes = 20 bytes
 
 SIZE_DISPARO_JUGADOR EQU 20  ; 5 campos * 4 bytes
 
-MAX_DISPAROS_JUGADOR EQU 5   ; Máximo 5 balas en pantalla
+MAX_DISPAROS_JUGADOR EQU 5   ; M?ximo 5 balas en pantalla
 
 
 .data
 MAX_ENEMIGOS EQU 10
-; Tamaños de sprites
+; Tama?os de sprites
 ENEMY_WIDTH EQU 32    ; Ancho del enemigo
 ENEMY_HEIGHT EQU 16   ; Alto del enemigo
 BULLET_WIDTH EQU 5    ; Ancho de la bala
 BULLET_HEIGHT EQU 15  ; Alto de la bala
 
 ; Espaciado entre enemigos
-ENEMY_SPACING_X EQU 40   ; 40 píxeles entre enemigos (32 + 8)
-ENEMY_SPACING_Y EQU 25   ; 25 píxeles entre filas (16 + 9)
+ENEMY_SPACING_X EQU 40   ; 40 p?xeles entre enemigos (32 + 8)
+ENEMY_SPACING_Y EQU 25   ; 25 p?xeles entre filas (16 + 9)
 
 ; Arrays de disparos
 disparos_jugador DisparoJugador MAX_DISPAROS_JUGADOR DUP(<>)
 
+; Puntuacion
+puntuacion_actual DWORD 0
+puntos_por_enemigo DWORD 1000
 
 
 ; Array de enemigos
 enemigos_array EnemigoSI MAX_ENEMIGOS DUP(<>)
 enemigo_count DWORD 0
 
-; Variables para la formación
+; Variables para la formaci?n
 formation_direction DWORD 1  ; 1 = derecha, -1 = izquierda
-should_descend DWORD 0       ; 0 = no, 1 = sí bajar
+should_descend DWORD 0       ; 0 = no, 1 = s? bajar
 formation_speed DWORD 7
 
 left_bound DWORD 9999
@@ -66,6 +66,8 @@ right_bound DWORD -9999
 PUBLIC pruebaPuente, moverJugadorAsm, definirValorAsm
 PUBLIC actualizarPosicionEnemigosAsm, initEnemigos, updateAllEnemigos, getEnemigoData
 PUBLIC crearDisparoJugador, actualizarDisparosJugador, getDisparoJugadorData
+PUBLIC checkColisionBalaEnemigo, updateColisiones, getEnemigosVivos
+PUBLIC getPuntuacion, addPuntuacion, resetPuntuacion, checkColisionConPuntos
 
 ; pruebaPuente: recibe (int a, int b) -> devuelve a + b
 pruebaPuente PROC a:DWORD, b:DWORD
@@ -74,7 +76,7 @@ pruebaPuente PROC a:DWORD, b:DWORD
     ret 8
 pruebaPuente ENDP
 
-; Función para inicializar enemigos
+; Funcion para inicializar enemigos
 initEnemigos PROC rows:DWORD, cols:DWORD
     PUSH ebx
     PUSH esi
@@ -117,7 +119,7 @@ init_loop:
     ADD eax, 50       ; Margen superior
     MOV [esi + EnemigoSI.y], eax
     
-    ; Configurar velocidad y dirección
+    ; Configurar velocidad y direcci?n
     MOV eax, formation_speed
     MOV [esi + EnemigoSI.speed], eax
     
@@ -137,7 +139,7 @@ init_loop:
     RET 8
 initEnemigos ENDP
 
-; ===== VERIFICAR LÍMITES DE LA FORMACIÓN =====
+; ===== VERIFICAR L?MITES DE LA FORMACI?N =====
 checkFormationBounds PROC
     PUSH ebx
     PUSH esi
@@ -149,7 +151,7 @@ checkFormationBounds PROC
     XOR ecx, ecx
     
 bounds_loop:
-    ; Calcular posición en array
+    ; Calcular posici?n en array
     MOV eax, ecx
     MOV edx, SIZE_ENEMIGO
     MUL edx
@@ -159,16 +161,16 @@ bounds_loop:
     CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
     JE bounds_next
     
-    ; Obtener posición x
+    ; Obtener posici?n x
     MOV eax, [esi + EnemigoSI.x]
     
-    ; Actualizar límite izquierdo
+    ; Actualizar l?mite izquierdo
     CMP eax, left_bound
     JGE check_right
     MOV left_bound, eax
     
 check_right:
-    ; Actualizar límite derecho
+    ; Actualizar l?mite derecho
     CMP eax, right_bound
     JLE bounds_next
     MOV right_bound, eax
@@ -190,29 +192,29 @@ updateAllEnemigos PROC ancho_pantalla:DWORD
     PUSH esi
     PUSH ecx
     
-    ; 1. Encontrar límites de la formación
+    ; 1. Encontrar l?mites de la formaci?n
     CALL checkFormationBounds
     
-    ; 2. Verificar si la formación tocó los bordes
+    ; 2. Verificar si la formaci?n toc? los bordes
     MOV eax, left_bound
     MOV edx, right_bound
     
-    ; Verificar límite izquierdo
+    ; Verificar l?mite izquierdo
     CMP eax, 10
     JG check_right_bound
     
-    ; Tocó límite izquierdo
+    ; Toc? l?mite izquierdo
     MOV formation_direction, 1
     MOV should_descend, 1
     JMP update_enemies
 
 check_right_bound:
-    ; Verificar límite derecho (añadir ancho del sprite)
+    ; Verificar l?mite derecho (a?adir ancho del sprite)
     ADD edx, ENEMY_WIDTH
     CMP edx, ancho_pantalla
     JL update_enemies
     
-    ; Tocó límite derecho
+    ; Toc? l?mite derecho
     MOV formation_direction, -1
     MOV should_descend, 1
     
@@ -221,13 +223,13 @@ update_enemies:
     XOR ecx, ecx
 
 update_loop:
-    ; Calcular posición en array
+    ; Calcular posici?n en array
     MOV eax, ecx
     MOV edx, SIZE_ENEMIGO
     MUL edx
     LEA esi, enemigos_array[eax]
     
-    ; Verificar si está vivo
+    ; Verificar si est? vivo
     CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
     JE next_enemigo
 
@@ -239,15 +241,15 @@ update_loop:
     ADD eax, ebx
     MOV [esi + EnemigoSI.x], eax
 
-    ; Actualizar dirección individual
+    ; Actualizar direcci?n individual
     MOV eax, formation_direction
     MOV [esi + EnemigoSI.direction], eax
     
-    ; Descenso si está activado
+    ; Descenso si est? activado
     CMP should_descend, 0
     JE next_enemigo
     
-    ; Bajar enemigo 20 píxeles
+    ; Bajar enemigo 20 p?xeles
     MOV eax, [esi + EnemigoSI.y]
     ADD eax, 20
     MOV [esi + EnemigoSI.y], eax
@@ -257,7 +259,7 @@ next_enemigo:
     CMP ecx, enemigo_count
     JL update_loop
     
-    ; Desactivar descenso para el próximo frame
+    ; Desactivar descenso para el pr?ximo frame
     MOV should_descend, 0
     
     POP ecx
@@ -272,7 +274,7 @@ getEnemigoData PROC index:DWORD, out_x:PTR DWORD, out_y:PTR DWORD, out_alive:PTR
     CMP eax, enemigo_count
     JGE error
     
-    ; Calcular posición en array
+    ; Calcular posici?n en array
     MOV edx, SIZE_ENEMIGO
     MUL edx
     LEA esi, enemigos_array[eax]
@@ -290,7 +292,7 @@ getEnemigoData PROC index:DWORD, out_x:PTR DWORD, out_y:PTR DWORD, out_alive:PTR
     MOV edx, out_alive
     MOV [edx], eax
     
-    MOV eax, 1  ; éxito
+    MOV eax, 1  ; ?xito
     RET
     
 error:
@@ -335,28 +337,28 @@ actualizarPosicionEnemigosAsm PROC pos_x:PTR DWORD, pos_y:PTR DWORD, velocidad:D
     ; Self.x += self.speed * self.direction
     MOV eax, [esi]      ; eax = x actual
     MOV ecx, velocidad  ; ecx = velocidad
-    MOV edx, [ebx]      ; edx = dirección (1 o -1)
+    MOV edx, [ebx]      ; edx = direcci?n (1 o -1)
 
-    IMUL ecx, edx       ; ecx = velocidad * dirección
-    ADD eax, ecx        ; eax = x + velocidad * dirección
+    IMUL ecx, edx       ; ecx = velocidad * direcci?n
+    ADD eax, ecx        ; eax = x + velocidad * direcci?n
     
     ; Guardar nuevo x
     MOV [esi], eax
 
-    ; ===== VERIFICAR LÍMITES =====
+    ; ===== VERIFICAR L?MITES =====
     
-    ; Primero verificar límite izquierdo (x <= 0)
+    ; Primero verificar l?mite izquierdo (x <= 0)
     CMP eax, 0
     JG verificar_derecho  ; Si x > 0, saltar a verificar derecho
     
-    ; ===== TOCÓ LÍMITE IZQUIERDO =====
-    MOV edx, [ebx]      ; Cargar dirección actual
-    NEG edx             ; Invertir dirección
-    MOV [ebx], edx      ; Guardar nueva dirección
+    ; ===== TOC? L?MITE IZQUIERDO =====
+    MOV edx, [ebx]      ; Cargar direcci?n actual
+    NEG edx             ; Invertir direcci?n
+    MOV [ebx], edx      ; Guardar nueva direcci?n
     
     ; Mover hacia abajo
     MOV ecx, [edi]      ; Cargar y actual
-    ADD ecx, 20         ; Añadir 20 píxeles
+    ADD ecx, 20         ; A?adir 20 p?xeles
     MOV [edi], ecx      ; Guardar nuevo y
     
     ; Corregir x para que no sea negativo
@@ -364,21 +366,21 @@ actualizarPosicionEnemigosAsm PROC pos_x:PTR DWORD, pos_y:PTR DWORD, velocidad:D
     JMP fin_funcion
     
 verificar_derecho:
-    ; Verificar límite derecho (x >= ancho - 50)
+    ; Verificar l?mite derecho (x >= ancho - 50)
     MOV edx, ancho      ; Cargar ancho de pantalla
     SUB edx, 50         ; Restar ancho del sprite
     
     CMP eax, edx        ; Comparar x con (ancho - 50)
     JL fin_funcion      ; Si x < (ancho-50), terminar
     
-    ; ===== TOCÓ LÍMITE DERECHO =====
-    MOV edx, [ebx]      ; Cargar dirección actual
-    NEG edx             ; Invertir dirección
-    MOV [ebx], edx      ; Guardar nueva dirección
+    ; ===== TOC? L?MITE DERECHO =====
+    MOV edx, [ebx]      ; Cargar direcci?n actual
+    NEG edx             ; Invertir direcci?n
+    MOV [ebx], edx      ; Guardar nueva direcci?n
     
     ; Mover hacia abajo
     MOV ecx, [edi]      ; Cargar y actual
-    ADD ecx, 20         ; Añadir 20 píxeles
+    ADD ecx, 20         ; A?adir 20 p?xeles
     MOV [edi], ecx      ; Guardar nuevo y
     
     ; Corregir x para que no se salga
@@ -401,7 +403,7 @@ crearDisparoJugador PROC pos_x:DWORD, pos_y:DWORD
     ; Buscar slot libre
     XOR ecx, ecx
     
-buscar_slot_jugador:
+buscar_slot_jugador:    
     MOV eax, ecx
     MOV ebx, SIZE_DISPARO_JUGADOR
     MUL ebx
@@ -420,14 +422,16 @@ buscar_slot_jugador:
 slot_encontrado_jugador:
     ; Configurar disparo
     MOV eax, pos_x
-    ADD eax, 22          ; Centrar en la nave (asumiendo nave de 50px)
+    ADD eax, 25          ; Centrar en la nave (asumiendo nave de 50px)
+    SUB eax, 2
     MOV [esi + DisparoJugador.x], eax
     
     MOV eax, pos_y
+    SUB eax, 15
     MOV [esi + DisparoJugador.y], eax
     
     MOV DWORD PTR [esi + DisparoJugador.is_active], 1
-    MOV DWORD PTR [esi + DisparoJugador.speed], 8     ; Velocidad rápida hacia arriba
+    MOV DWORD PTR [esi + DisparoJugador.speed], 8
     
 fin_crear_jugador:
     POP ecx
@@ -457,11 +461,11 @@ actualizar_loop_jugador:
     SUB eax, [esi + DisparoJugador.speed]
     MOV [esi + DisparoJugador.y], eax
     
-    ; Verificar si salió de pantalla (arriba)
+    ; Verificar si sali? de pantalla (arriba)
     CMP eax, 0
     JG siguiente_jugador
     
-    ; Desactivar si salió
+    ; Desactivar si sali?
     MOV DWORD PTR [esi + DisparoJugador.is_active], 0
     
 siguiente_jugador:
@@ -503,5 +507,238 @@ error_jugador:
     XOR eax, eax
     RET 16
 getDisparoJugadorData ENDP
+; ===== DETECCIÓN DE COLISIONES CON PUNTUACIÓN (VERSIÓN SIMPLIFICADA) =====
+checkColisionBalaEnemigo PROC
+    PUSH ebx
+    PUSH esi
+    PUSH edi
+    PUSH ecx
+    
+    ; Para cada bala
+    XOR ecx, ecx
+    
+simple_bala_loop:
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_jugador[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE simple_siguiente_bala
+    
+    ; Guardar índice de bala
+    PUSH ecx
+    
+    ; Para cada enemigo
+    XOR ecx, ecx
+    
+simple_enemigo_loop:
+    MOV eax, ecx
+    MOV ebx, SIZE_ENEMIGO
+    MUL ebx
+    LEA edi, enemigos_array[eax]
+    
+    CMP DWORD PTR [edi + EnemigoSI.is_alive], 0
+    JE simple_siguiente_enemigo
+    
+    ; Verificar colisión
+    MOV eax, [esi + DisparoJugador.x]
+    ADD eax, BULLET_WIDTH
+    CMP eax, [edi + EnemigoSI.x]
+    JLE simple_siguiente_enemigo
+    
+    MOV eax, [edi + EnemigoSI.x]
+    ADD eax, ENEMY_WIDTH
+    CMP eax, [esi + DisparoJugador.x]
+    JLE simple_siguiente_enemigo
+    
+    MOV eax, [esi + DisparoJugador.y]
+    ADD eax, BULLET_HEIGHT
+    CMP eax, [edi + EnemigoSI.y]
+    JLE simple_siguiente_enemigo
+    
+    MOV eax, [edi + EnemigoSI.y]
+    ADD eax, ENEMY_HEIGHT
+    CMP eax, [esi + DisparoJugador.y]
+    JLE simple_siguiente_enemigo
+    
+    ; ¡COLISIÓN!
+    MOV DWORD PTR [edi + EnemigoSI.is_alive], 0
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 0
+    
+    ; Sumar puntos directamente
+    ADD puntuacion_actual, 1000  ; o usa la variable puntos_por_enemigo
+    
+    ; Salir del loop de enemigos (esta bala ya colisionó)
+    POP ecx
+    JMP simple_siguiente_bala
+    
+simple_siguiente_enemigo:
+    INC ecx
+    CMP ecx, enemigo_count
+    JL simple_enemigo_loop
+    
+    ; Terminamos de revisar todos los enemigos para esta bala
+    POP ecx
+    
+simple_siguiente_bala:
+    INC ecx
+    CMP ecx, MAX_DISPAROS_JUGADOR
+    JL simple_bala_loop
+    
+    ; Retornar 0 (ya no nos importa el contador)
+    XOR eax, eax
+    
+    POP ecx
+    POP edi
+    POP esi
+    POP ebx
+    RET
+checkColisionBalaEnemigo ENDP
+
+; Y cambia updateColisiones para usar esta:
+updateColisiones PROC
+    CALL checkColisionBalaEnemigo
+    RET
+updateColisiones ENDP
+
+; ===== FUNCIÓN PARA OBTENER CANTIDAD DE ENEMIGOS VIVOS =====
+; Retorna en eax: cantidad de enemigos vivos
+getEnemigosVivos PROC
+    PUSH esi
+    PUSH ecx
+    
+    XOR eax, eax        ; contador
+    XOR ecx, ecx        ; índice
+    
+vivos_loop:
+    MOV edx, ecx
+    IMUL edx, SIZE_ENEMIGO
+    LEA esi, enemigos_array[edx]
+    
+    CMP DWORD PTR [esi + EnemigoSI.is_alive], 1
+    JNE siguiente_vivo
+    INC eax
+    
+siguiente_vivo:
+    INC ecx
+    CMP ecx, enemigo_count
+    JL vivos_loop
+    
+    POP ecx
+    POP esi
+    RET
+getEnemigosVivos ENDP
+
+; getPuntuacion: retorna la puntuación actual
+getPuntuacion PROC
+    MOV eax, puntuacion_actual
+    RET
+getPuntuacion ENDP
+
+; addPuntuacion: añade puntos a la puntuación
+addPuntuacion PROC puntos:DWORD
+    MOV eax, puntos
+    ADD puntuacion_actual, eax
+    RET 4
+addPuntuacion ENDP
+
+; resetPuntuacion: reinicia la puntuación a 0
+resetPuntuacion PROC
+    MOV puntuacion_actual, 0
+    RET
+resetPuntuacion ENDP
+
+; ===== FUNCIÓN DE COLISIÓN CON PUNTUACIÓN =====
+checkColisionConPuntos PROC
+    PUSH ebx
+    PUSH esi
+    PUSH edi
+    PUSH ecx
+    PUSH edx
+    
+    XOR edx, edx        ; edx = contador de eliminados
+    
+    ; Para cada bala
+    XOR ecx, ecx
+    
+p_bala_loop:
+    MOV eax, ecx
+    MOV ebx, SIZE_DISPARO_JUGADOR
+    MUL ebx
+    LEA esi, disparos_jugador[eax]
+    
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE p_siguiente_bala
+    
+    PUSH ecx
+    XOR ecx, ecx
+    
+p_enemigo_loop:
+    MOV eax, ecx
+    MOV ebx, SIZE_ENEMIGO
+    MUL ebx
+    LEA edi, enemigos_array[eax]
+    
+    CMP DWORD PTR [edi + EnemigoSI.is_alive], 0
+    JE p_siguiente_enemigo
+    
+    ; Verificar colisión
+    MOV eax, [esi + DisparoJugador.x]
+    ADD eax, BULLET_WIDTH
+    CMP eax, [edi + EnemigoSI.x]
+    JLE p_siguiente_enemigo
+    
+    MOV eax, [edi + EnemigoSI.x]
+    ADD eax, ENEMY_WIDTH
+    CMP eax, [esi + DisparoJugador.x]
+    JLE p_siguiente_enemigo
+    
+    MOV eax, [esi + DisparoJugador.y]
+    ADD eax, BULLET_HEIGHT
+    CMP eax, [edi + EnemigoSI.y]
+    JLE p_siguiente_enemigo
+    
+    MOV eax, [edi + EnemigoSI.y]
+    ADD eax, ENEMY_HEIGHT
+    CMP eax, [esi + DisparoJugador.y]
+    JLE p_siguiente_enemigo
+    
+    ; ¡COLISIÓN!
+    MOV DWORD PTR [edi + EnemigoSI.is_alive], 0
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 0
+    
+    ; Añadir puntos
+    PUSH puntos_por_enemigo
+    CALL addPuntuacion
+    ADD esp, 4
+    
+    INC edx
+    
+    POP ecx
+    JMP p_siguiente_bala
+    
+p_siguiente_enemigo:
+    INC ecx
+    CMP ecx, enemigo_count
+    JL p_enemigo_loop
+    
+    POP ecx
+    
+p_siguiente_bala:
+    INC ecx
+    CMP ecx, MAX_DISPAROS_JUGADOR
+    JL p_bala_loop
+    
+    MOV eax, edx  ; retornar cantidad eliminada
+    
+    POP edx
+    POP ecx
+    POP edi
+    POP esi
+    POP ebx
+    RET
+checkColisionConPuntos ENDP
+
 
 END
