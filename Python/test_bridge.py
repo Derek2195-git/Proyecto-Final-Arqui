@@ -99,6 +99,27 @@ check_colision_bala_enemigo_jugador = dll.checkColisionBalaEnemigoJugador
 check_colision_bala_enemigo_jugador.argtypes = [c_int, c_int, c_int, c_int]
 check_colision_bala_enemigo_jugador.restype = c_int
 
+check_colision_enemigo_jugador = dll.checkColisionEnemigoJugador
+check_colision_enemigo_jugador.argtypes = [c_int, c_int, c_int, c_int]
+check_colision_enemigo_jugador.restype = c_int
+
+# Verificar si enemigos llegaron a la base
+check_enemigos_en_base = dll.checkEnemigosEnBase
+check_enemigos_en_base.argtypes = [c_int]
+check_enemigos_en_base.restype = c_int
+
+get_nivel_dificultad = dll.getNivelDificultad
+get_nivel_dificultad.argtypes = []
+get_nivel_dificultad.restype = c_int
+
+set_nivel_dificultad = dll.setNivelDificultad
+set_nivel_dificultad.argtypes = [c_int]
+set_nivel_dificultad.restype = None
+
+actualizar_dificultad = dll.actualizarDificultad
+actualizar_dificultad.argtypes = []
+actualizar_dificultad.restype = None
+
 if (prueba(5,20)==25):
     prueba_completa = "cargado."
 else:
