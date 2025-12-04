@@ -23,4 +23,5 @@ EXPORTS
     actualizarDisparosEnemigos @20 
     getDisparoEnemigoData @21
     intentarDisparoEnemigo @22
-
+    checkColisionBalaEnemigoJugador @23
+    checkColisionEnemigoJugador @24

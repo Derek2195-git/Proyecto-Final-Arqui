@@ -74,6 +74,7 @@ PUBLIC crearDisparoJugador, actualizarDisparosJugador, getDisparoJugadorData
 PUBLIC checkColisionBalaEnemigo, updateColisiones, getEnemigosVivos
 PUBLIC getPuntuacion, addPuntuacion, resetPuntuacion, checkColisionConPuntos
 PUBLIC crearDisparoEnemigo, actualizarDisparosEnemigos, getDisparoEnemigoData, intentarDisparoEnemigo
+PUBLIC checkColisionBalaEnemigoJugador, checkColisionEnemigoJugador
 
 ; pruebaPuente: recibe (int a, int b) -> devuelve a + b
 pruebaPuente PROC a:DWORD, b:DWORD
@@ -962,6 +963,129 @@ fin_intento:
     RET
 intentarDisparoEnemigo ENDP
 
+checkColisionBalaEnemigoJugador PROC
+    ; Parámetros: jug_x, jug_y, jug_ancho, jug_alto
+    PUSH ebp
+    MOV ebp, esp
+    
+    PUSH esi
+    PUSH ecx
+    PUSH edx
+    
+    XOR ecx, ecx            ; índice
+    
+check_loop:
+    ; Obtener bala
+    MOV eax, ecx
+    MOV edx, SIZE_DISPARO_JUGADOR
+    MUL edx
+    LEA esi, disparos_enemigos[eax]
+    
+    ; ¿Está activa?
+    CMP DWORD PTR [esi + DisparoJugador.is_active], 0
+    JE next_bullet
+    
+    ; === COLISIÓN SIMPLE ===
+    ; Bala X entre jugador X y X+ancho?
+    MOV eax, [esi + DisparoJugador.x]
+    CMP eax, [ebp + 8]          ; jug_x
+    JL next_bullet
+    ADD eax, BULLET_WIDTH
+    MOV edx, [ebp + 8]
+    ADD edx, [ebp + 16]         ; jug_x + jug_ancho
+    CMP eax, edx
+    JG next_bullet
+    
+    ; Bala Y entre jugador Y y Y+alto?
+    MOV eax, [esi + DisparoJugador.y]
+    CMP eax, [ebp + 12]         ; jug_y
+    JL next_bullet
+    ADD eax, BULLET_HEIGHT
+    MOV edx, [ebp + 12]
+    ADD edx, [ebp + 20]         ; jug_y + jug_alto
+    CMP eax, edx
+    JG next_bullet
+    
+    ; ¡COLISIÓN!
+    MOV DWORD PTR [esi + DisparoJugador.is_active], 0
+    MOV eax, 1
+    JMP done
+    
+next_bullet:
+    INC ecx
+    CMP ecx, MAX_DISPAROS_ENEMIGOS
+    JL check_loop
+    
+    ; Sin colisiones
+    MOV eax, 0
+    
+done:
+    POP edx
+    POP ecx
+    POP esi
+    POP ebp
+    RET 16
+checkColisionBalaEnemigoJugador ENDP
 
+; ===== DETECCIÓN DE COLISIÓN ENEMIGO - JUGADOR =====
+checkColisionEnemigoJugador PROC jugador_x:DWORD, jugador_y:DWORD, jugador_ancho:DWORD, jugador_alto:DWORD
+    PUSH ebp
+    MOV ebp, esp
+    
+    PUSH ebx
+    PUSH esi
+    PUSH ecx
+    
+    XOR ecx, ecx
+    MOV eax, 0
+    
+enemigo_colision_loop:
+    MOV eax, ecx
+    MOV ebx, SIZE_ENEMIGO
+    MUL ebx
+    LEA esi, enemigos_array[eax]
+    
+    CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
+    JE siguiente_enemigo_colision
+    
+    ; Verificar colisión
+    MOV eax, [esi + EnemigoSI.x]
+    ADD eax, ENEMY_WIDTH
+    CMP eax, [ebp + 8]              ; jugador_x
+    JLE siguiente_enemigo_colision
+    
+    MOV eax, [ebp + 8]              ; jugador_x
+    ADD eax, [ebp + 16]             ; jugador_ancho
+    CMP eax, [esi + EnemigoSI.x]
+    JLE siguiente_enemigo_colision
+    
+    MOV eax, [esi + EnemigoSI.y]
+    ADD eax, ENEMY_HEIGHT
+    CMP eax, [ebp + 12]             ; jugador_y
+    JLE siguiente_enemigo_colision
+    
+    MOV eax, [ebp + 12]             ; jugador_y
+    ADD eax, [ebp + 20]             ; jugador_alto
+    CMP eax, [esi + EnemigoSI.y]
+    JLE siguiente_enemigo_colision
+    
+    ; ¡COLISIÓN ENEMIGO-JUGADOR!
+    MOV eax, 1
+    JMP fin_colision_enemigo
+    
+siguiente_enemigo_colision:
+    INC ecx
+    CMP ecx, enemigo_count
+    JL enemigo_colision_loop
+    
+    MOV eax, 0
+    
+fin_colision_enemigo:
+    POP ecx
+    POP esi
+    POP ebx
+    POP ebp
+    RET 16
+checkColisionEnemigoJugador ENDP
 
 END
