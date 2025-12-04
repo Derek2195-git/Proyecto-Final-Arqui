@@ -19,6 +19,7 @@ x64/
 # Python
 __pycache__/
 *.pyc
+Python/test_bridge.py
 
 # DLLs
 *.dll
