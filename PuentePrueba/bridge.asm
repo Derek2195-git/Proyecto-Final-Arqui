@@ -31,7 +31,7 @@ MAX_DISPAROS_JUGADOR EQU 5   ; M?ximo 5 balas en pantalla
 MAX_DISPAROS_ENEMIGOS EQU 20
 HEIGHT_SCREEN EQU 600
 .data
-MAX_ENEMIGOS EQU 10
+MAX_ENEMIGOS EQU 21
 ; Tama?os de sprites
 ENEMY_WIDTH EQU 32    ; Ancho del enemigo
 ENEMY_HEIGHT EQU 16   ; Alto del enemigo
@@ -63,9 +63,17 @@ enemigo_count DWORD 0
 formation_direction DWORD 1  ; 1 = derecha, -1 = izquierda
 should_descend DWORD 0       ; 0 = no, 1 = s? bajar
 formation_speed DWORD 7
+descenso_distancia DWORD 20  ; Cuánto bajan al tocar bordes
 
 left_bound DWORD 9999
 right_bound DWORD -9999
+
+
+; ===== VARIABLES DE DIFICULTAD =====
+nivel_dificultad DWORD 1  ; Nivel actual (1 = fácil, 2 = medio, 3 = difícil)
+velocidad_base DWORD 7    ; Velocidad base de los enemigos
+velocidad_disparos_enemigos DWORD 5  ; Velocidad base de balas enemigas
+probabilidad_disparo_base DWORD 15   ; Probabilidad base de disparo (%)
 
 .code
 PUBLIC pruebaPuente, moverJugadorAsm, definirValorAsm
@@ -74,16 +82,16 @@ PUBLIC crearDisparoJugador, actualizarDisparosJugador, getDisparoJugadorData
 PUBLIC checkColisionBalaEnemigo, updateColisiones, getEnemigosVivos
 PUBLIC getPuntuacion, addPuntuacion, resetPuntuacion, checkColisionConPuntos
 PUBLIC crearDisparoEnemigo, actualizarDisparosEnemigos, getDisparoEnemigoData, intentarDisparoEnemigo
-PUBLIC checkColisionBalaEnemigoJugador, checkColisionEnemigoJugador
+PUBLIC checkColisionBalaEnemigoJugador, checkColisionEnemigoJugador, checkEnemigosEnBase
+PUBLIC getNivelDificultad, setNivelDificultad, actualizarDificultad
 
-; pruebaPuente: recibe (int a, int b) -> devuelve a + b
+; Esta es la primera funcion que hice, por miedo a que le pasara algo a mi archivo la mantuve, no fue la mejor idea tbh
 pruebaPuente PROC a:DWORD, b:DWORD
     mov eax, a
     add eax, b
     ret 8
 pruebaPuente ENDP
-
-; Funcion para inicializar enemigos
+; ===== MODIFICAR initEnemigos para usar formation_speed =====
 initEnemigos PROC rows:DWORD, cols:DWORD
     PUSH ebx
     PUSH esi
@@ -96,6 +104,10 @@ initEnemigos PROC rows:DWORD, cols:DWORD
     MUL ebx
     MOV enemigo_count, eax
     
+    ; Establecer nivel inicial (fácil)
+    MOV nivel_dificultad, 1
+    CALL actualizarDificultad
+    
     XOR ecx, ecx
 
 init_loop:
@@ -107,26 +119,26 @@ init_loop:
     ; Calcular fila y columna
     MOV eax, ecx
     XOR edx, edx
-    DIV cols          ; eax = fila, edx = columna
+    DIV cols
 
     ; Guardar fila
     PUSH eax
     
-    ; Calcular x = col * ENEMY_SPACING_X + 30 (margen izquierdo)
-    MOV eax, edx      ; eax = columna
+    ; Calcular x
+    MOV eax, edx
     MOV ebx, ENEMY_SPACING_X
     MUL ebx
-    ADD eax, 30       ; Margen izquierdo
+    ADD eax, 30
     MOV [esi + EnemigoSI.x], eax
     
-    ; Calcular y = fila * ENEMY_SPACING_Y + 50 (margen superior)
-    POP eax           ; recuperar fila
+    ; Calcular y
+    POP eax
     MOV ebx, ENEMY_SPACING_Y
     MUL ebx
-    ADD eax, 50       ; Margen superior
+    ADD eax, 120
     MOV [esi + EnemigoSI.y], eax
     
-    ; Configurar velocidad y direcci?n
+    ; Configurar velocidad actual (usar formation_speed)
     MOV eax, formation_speed
     MOV [esi + EnemigoSI.speed], eax
     
@@ -193,72 +205,77 @@ bounds_next:
     RET
 checkFormationBounds ENDP
 
-; ===== ACTUALIZAR TODOS LOS ENEMIGOS =====
+; ===== MODIFICAR updateAllEnemigos para usar descenso_distancia =====
 updateAllEnemigos PROC ancho_pantalla:DWORD
     PUSH ebx
     PUSH esi
     PUSH ecx
     
-    ; 1. Encontrar l?mites de la formaci?n
+    ; 1. Actualizar dificultad según enemigos restantes
+    CALL actualizarDificultad
+    
+    ; 2. Encontrar límites de la formación
     CALL checkFormationBounds
     
-    ; 2. Verificar si la formaci?n toc? los bordes
+    ; 3. Verificar si la formación tocó los bordes
     MOV eax, left_bound
     MOV edx, right_bound
     
-    ; Verificar l?mite izquierdo
+    ; Verificar límite izquierdo
     CMP eax, 10
     JG check_right_bound
     
-    ; Toc? l?mite izquierdo
+    ; Tocó límite izquierdo
     MOV formation_direction, 1
     MOV should_descend, 1
     JMP update_enemies
 
 check_right_bound:
-    ; Verificar l?mite derecho (a?adir ancho del sprite)
+    ; Verificar límite derecho
     ADD edx, ENEMY_WIDTH
     CMP edx, ancho_pantalla
     JL update_enemies
     
-    ; Toc? l?mite derecho
+    ; Tocó límite derecho
     MOV formation_direction, -1
     MOV should_descend, 1
     
 update_enemies:
-    ; 3. Actualizar cada enemigo
+    ; 4. Actualizar cada enemigo
     XOR ecx, ecx
 
 update_loop:
-    ; Calcular posici?n en array
     MOV eax, ecx
     MOV edx, SIZE_ENEMIGO
     MUL edx
     LEA esi, enemigos_array[eax]
     
-    ; Verificar si est? vivo
     CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
     JE next_enemigo
 
+    ; Actualizar velocidad según dificultad actual
+    MOV eax, formation_speed
+    MOV [esi + EnemigoSI.speed], eax
+
     ; Mover en X
     MOV eax, [esi + EnemigoSI.x]
-    MOV ebx, formation_speed
+    MOV ebx, [esi + EnemigoSI.speed]
     MOV edx, formation_direction
     IMUL ebx, edx
     ADD eax, ebx
     MOV [esi + EnemigoSI.x], eax
 
-    ; Actualizar direcci?n individual
+    ; Actualizar dirección
     MOV eax, formation_direction
     MOV [esi + EnemigoSI.direction], eax
     
-    ; Descenso si est? activado
+    ; Descenso si está activado
     CMP should_descend, 0
     JE next_enemigo
     
-    ; Bajar enemigo 20 p?xeles
+    ; Bajar enemigo (distancia según dificultad)
     MOV eax, [esi + EnemigoSI.y]
-    ADD eax, 20
+    ADD eax, descenso_distancia
     MOV [esi + EnemigoSI.y], eax
     
 next_enemigo:
@@ -266,7 +283,7 @@ next_enemigo:
     CMP ecx, enemigo_count
     JL update_loop
     
-    ; Desactivar descenso para el pr?ximo frame
+    ; Desactivar descenso
     MOV should_descend, 0
     
     POP ecx
@@ -746,10 +763,8 @@ p_siguiente_bala:
     POP ebx
     RET
 checkColisionConPuntos ENDP
-
-; ===== CREAR DISPARO ENEMIGO (SIMPLIFICADO) =====
+; ===== MODIFICAR crearDisparoEnemigo para usar velocidad variable =====
 crearDisparoEnemigo PROC
-    ; Parámetros en pila: pos_x (4 bytes), pos_y (4 bytes)
     PUSH ebp
     MOV ebp, esp
     
@@ -773,7 +788,6 @@ buscar_slot_enemigo:
     CMP ecx, MAX_DISPAROS_ENEMIGOS
     JL buscar_slot_enemigo
     
-    ; No hay slots disponibles
     JMP fin_crear_enemigo
     
 slot_encontrado_enemigo:
@@ -781,26 +795,29 @@ slot_encontrado_enemigo:
     MOV eax, [ebp + 8]  ; pos_x
     MOV ebx, [ebp + 12] ; pos_y
     
-    ; Configurar disparo (de enemigo)
-    ADD eax, 16         ; ENEMY_WIDTH/2 = 16
-    SUB eax, 2          ; BULLET_WIDTH/2 = 2
+    ; Configurar disparo
+    ADD eax, 16
+    SUB eax, 2
     MOV [esi + DisparoJugador.x], eax
     
-    ADD ebx, ENEMY_HEIGHT ; Salir desde la base del enemigo
+    ADD ebx, ENEMY_HEIGHT
     MOV [esi + DisparoJugador.y], ebx
     
     MOV DWORD PTR [esi + DisparoJugador.is_active], 1
-    MOV DWORD PTR [esi + DisparoJugador.speed], 5  ; Velocidad
-    MOV DWORD PTR [esi + DisparoJugador.tipo], 1   ; Tipo enemigo
+    
+    ; ¡VELOCIDAD SEGÚN DIFICULTAD!
+    MOV eax, velocidad_disparos_enemigos
+    MOV [esi + DisparoJugador.speed], eax
+    
+    MOV DWORD PTR [esi + DisparoJugador.tipo], 1
     
 fin_crear_enemigo:
     POP ecx
     POP esi
     POP ebx
     POP ebp
-    RET 8  ; Limpiar 2 parámetros
+    RET 8
 crearDisparoEnemigo ENDP
-
 ; ===== ACTUALIZAR DISPAROS ENEMIGOS (SIMPLIFICADO) =====
 actualizarDisparosEnemigos PROC
     PUSH esi
@@ -883,22 +900,50 @@ fin_get_enemigo:
     RET 16  ; Limpiar 4 parámetros
 getDisparoEnemigoData ENDP
 
-; ===== INTENTAR DISPARO ENEMIGO (CORREGIDO) =====
+; ===== MODIFICAR intentarDisparoEnemigo para mayor probabilidad según dificultad =====
 intentarDisparoEnemigo PROC
     PUSH ebx
     PUSH esi
     PUSH ecx
-    PUSH edi          ; Usar edi para contador en lugar de edx
+    PUSH edi
     
     ; Contador de enemigos vivos
     CALL getEnemigosVivos
-    MOV ebx, eax        ; ebx = cantidad de enemigos vivos
+    MOV ebx, eax
     CMP ebx, 0
     JE fin_intento
     
+    ; Calcular probabilidad base según dificultad
+    MOV eax, nivel_dificultad
+    CMP eax, 1
+    JE prob_facil
+    CMP eax, 2
+    JE prob_medio
+    CMP eax, 3
+    JE prob_dificil
+    
+    ; Por defecto
+    MOV eax, 15
+    JMP tener_probabilidad
+    
+prob_facil:
+    MOV eax, 10  ; 10% en fácil
+    JMP tener_probabilidad
+    
+prob_medio:
+    MOV eax, 20  ; 20% en medio
+    JMP tener_probabilidad
+    
+prob_dificil:
+    MOV eax, 30  ; 30% en difícil
+    
+tener_probabilidad:
+    ; Guardar probabilidad
+    PUSH eax
+    
     ; Por cada enemigo vivo
     XOR ecx, ecx
-    XOR edi, edi        ; edi = contador de disparos (0 inicial)
+    XOR edi, edi
     
 enemigo_disparo_loop:
     MOV eax, ecx
@@ -915,28 +960,17 @@ enemigo_disparo_loop:
     ADD eax, ecx
     
     ; Obtener número 0-99
-    XOR edx, edx        ; edx se usa para división
-    PUSH ebx           ; Guardar ebx temporalmente
+    XOR edx, edx
+    PUSH ebx
     MOV ebx, 100
-    DIV ebx            ; edx = resto (0-99)
+    DIV ebx
     MOV eax, edx
-    POP ebx            ; Restaurar ebx
+    POP ebx
     
-    ; ¡AUMENTAR PROBABILIDADES!
-    MOV ebx, [esi + EnemigoSI.y]
-    CMP ebx, 75
-    JG enemigo_abajo
-    
-    ; Enemigo arriba: 15% probabilidad
-    CMP eax, 15
-    JL disparar_enemigo
-    JMP siguiente_enemigo_disparo
-    
-enemigo_abajo:
-    ; Enemigo abajo: 25% probabilidad
-    CMP eax, 25        ; <-- ¡CORREGIDO!
-    JL disparar_enemigo
-    JMP siguiente_enemigo_disparo
+    ; Comparar con probabilidad (que está en la pila en [esp+4])
+    MOV edx, [esp]  ; Obtener probabilidad de la pila
+    CMP eax, edx
+    JG siguiente_enemigo_disparo  ; Si random > probabilidad, no disparar
     
 disparar_enemigo:
     MOV eax, [esi + EnemigoSI.x]
@@ -948,12 +982,16 @@ disparar_enemigo:
     ; Permitir hasta 5 disparos por ciclo
     INC edi
     CMP edi, 5
-    JGE fin_intento
+    JGE fin_intento_pop
     
 siguiente_enemigo_disparo:
     INC ecx
     CMP ecx, enemigo_count
     JL enemigo_disparo_loop
+    
+fin_intento_pop:
+    ; Limpiar probabilidad de la pila
+    POP eax
     
 fin_intento:
     POP edi
@@ -1027,7 +1065,7 @@ done:
     RET 16
 checkColisionBalaEnemigoJugador ENDP
 
-; ===== DETECCIÓN DE COLISIÓN ENEMIGO - JUGADOR =====
+; ===== DETECCIÓN DE COLISIÓN ENEMIGO - JUGADOR (COMPLETAMENTE REESCRITA) =====
 checkColisionEnemigoJugador PROC jugador_x:DWORD, jugador_y:DWORD, jugador_ancho:DWORD, jugador_alto:DWORD
     PUSH ebp
     MOV ebp, esp
@@ -1035,57 +1073,211 @@ checkColisionEnemigoJugador PROC jugador_x:DWORD, jugador_y:DWORD, jugador_ancho
     PUSH ebx
     PUSH esi
     PUSH ecx
+    PUSH edx
     
-    XOR ecx, ecx
-    MOV eax, 0
+    XOR ecx, ecx            ; índice
+    MOV eax, 0              ; resultado = 0 (sin colisión)
     
-enemigo_colision_loop:
+colision_loop:
+    ; Obtener enemigo
     MOV eax, ecx
-    MOV ebx, SIZE_ENEMIGO
-    MUL ebx
+    MOV edx, SIZE_ENEMIGO
+    MUL edx
     LEA esi, enemigos_array[eax]
     
+    ; ¿Está vivo?
     CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
-    JE siguiente_enemigo_colision
+    JE siguiente_enemigo
     
-    ; Verificar colisión
-    MOV eax, [esi + EnemigoSI.x]
-    ADD eax, ENEMY_WIDTH
-    CMP eax, [ebp + 8]              ; jugador_x
-    JLE siguiente_enemigo_colision
+    ; ===== LÓGICA DE COLISIÓN CLARA =====
+    ; Calcular límites del enemigo
+    MOV eax, [esi + EnemigoSI.x]      ; eax = enemigo_x
+    MOV ebx, eax
+    ADD ebx, ENEMY_WIDTH              ; ebx = enemigo_x + ENEMY_WIDTH (derecha)
     
-    MOV eax, [ebp + 8]              ; jugador_x
-    ADD eax, [ebp + 16]             ; jugador_ancho
-    CMP eax, [esi + EnemigoSI.x]
-    JLE siguiente_enemigo_colision
+    ; Calcular límites del jugador
+    MOV edx, [ebp + 8]                ; edx = jugador_x
+    ADD edx, [ebp + 16]               ; edx = jugador_x + jugador_ancho (derecha)
     
-    MOV eax, [esi + EnemigoSI.y]
-    ADD eax, ENEMY_HEIGHT
-    CMP eax, [ebp + 12]             ; jugador_y
-    JLE siguiente_enemigo_colision
+    ; 1. Verificar si NO hay superposición en X
     
-    MOV eax, [ebp + 12]             ; jugador_y
-    ADD eax, [ebp + 20]             ; jugador_alto
-    CMP eax, [esi + EnemigoSI.y]
-    JLE siguiente_enemigo_colision
+    CMP ebx, [ebp + 8]                
+    JLE siguiente_enemigo             
     
-    ; ¡COLISIÓN ENEMIGO-JUGADOR!
+    CMP eax, edx                      
+    JGE siguiente_enemigo             
+    
+    ; 2. Verificar si NO hay superposición en Y
+    ; Calcular límites verticales del enemigo
+    MOV eax, [esi + EnemigoSI.y]      ; eax = enemigo_y
+    MOV ebx, eax
+    ADD ebx, ENEMY_HEIGHT             ; ebx = enemigo_y + ENEMY_HEIGHT (abajo)
+    
+    ; Calcular límites verticales del jugador
+    MOV edx, [ebp + 12]               
+    ADD edx, [ebp + 20]               
+    
+    CMP ebx, [ebp + 12]               
+    JLE siguiente_enemigo             
+    
+    CMP eax, edx                      
+    JGE siguiente_enemigo             
+    
+    ; ===== ¡COLISIÓN DETECTADA! =====
     MOV eax, 1
-    JMP fin_colision_enemigo
+    JMP fin_colision
     
-siguiente_enemigo_colision:
+siguiente_enemigo:
     INC ecx
     CMP ecx, enemigo_count
-    JL enemigo_colision_loop
+    JL colision_loop
     
+    ; Si llegamos aquí, no hubo colisiones
     MOV eax, 0
     
-fin_colision_enemigo:
+fin_colision:
+    POP edx
     POP ecx
     POP esi
     POP ebx
     POP ebp
     RET 16
 checkColisionEnemigoJugador ENDP
+
+; ===== VERIFICAR SI ALGÚN ENEMIGO LLEGÓ DEMASIADO ABAJO =====
+; Retorna en eax: 1 si algún enemigo llegó al límite, 0 si no
+checkEnemigosEnBase PROC limite_y:DWORD
+    PUSH esi
+    PUSH ecx
+    
+    ; Cargar límite en registro
+    MOV ecx, limite_y
+    
+    XOR eax, eax            ; resultado = 0 (inicialmente)
+    XOR edx, edx            ; índice = 0
+    
+check_loop_simple:
+    ; Calcular posición del enemigo
+    MOV esi, edx
+    IMUL esi, SIZE_ENEMIGO
+    LEA esi, enemigos_array[esi]
+    
+    ; ¿Está vivo?
+    CMP DWORD PTR [esi + EnemigoSI.is_alive], 0
+    JE next_enemy_simple
+    
+    ; ¿Su Y >= límite?
+    MOV esi, [esi + EnemigoSI.y]
+    CMP esi, ecx
+    JL next_enemy_simple    ; Si y < límite, siguiente
+    
+    ; ¡Encontramos uno que pasó!
+    MOV eax, 1
+    JMP done_simple
+    
+next_enemy_simple:
+    INC edx
+    CMP edx, enemigo_count
+    JL check_loop_simple
+    
+done_simple:
+    POP ecx
+    POP esi
+    RET 4
+checkEnemigosEnBase ENDP
+
+; ===== FUNCIONES DE DIFICULTAD =====
+
+; getNivelDificultad: retorna el nivel actual
+getNivelDificultad PROC
+    MOV eax, nivel_dificultad
+    RET
+getNivelDificultad ENDP
+
+; setNivelDificultad: establece el nivel de dificultad
+setNivelDificultad PROC nuevo_nivel:DWORD
+    MOV eax, nuevo_nivel
+    MOV nivel_dificultad, eax
+    
+    ; Actualizar variables según nivel
+    CMP eax, 1
+    JE nivel_facil
+    CMP eax, 2
+    JE nivel_medio
+    CMP eax, 3
+    JE nivel_dificil
+    
+    ; Por defecto, nivel fácil
+nivel_facil:
+    MOV formation_speed, 5      ; Velocidad lenta
+    MOV velocidad_disparos_enemigos, 4  ; Balas lentas
+    MOV descenso_distancia, 15  ; Bajan poco
+    JMP fin_set_nivel
+    
+nivel_medio:
+    MOV formation_speed, 7      ; Velocidad media
+    MOV velocidad_disparos_enemigos, 6  ; Balas media velocidad
+    MOV descenso_distancia, 20  ; Bajan normal
+    JMP fin_set_nivel
+    
+nivel_dificil:
+    MOV formation_speed, 9      ; Velocidad rápida
+    MOV velocidad_disparos_enemigos, 8  ; Balas rápidas
+    MOV descenso_distancia, 25  ; Bajan más
+    JMP fin_set_nivel
+    
+fin_set_nivel:
+    RET 4
+setNivelDificultad ENDP
+
+; actualizarDificultad: actualiza dificultad según enemigos restantes
+actualizarDificultad PROC
+    PUSH ebx
+    
+    ; Obtener cantidad de enemigos vivos
+    CALL getEnemigosVivos
+    MOV ebx, eax  ; ebx = enemigos vivos
+    
+    ; Calcular qué tan difícil debe ser
+    ; Si quedan muchos enemigos -> fácil
+    ; Si quedan pocos enemigos -> difícil
+    
+    CMP ebx, 15   ; Si quedan más de 15 enemigos
+    JG muy_facil
+    
+    CMP ebx, 10   ; Si quedan entre 10 y 15
+    JG dificultad_media
+    
+    CMP ebx, 5    ; Si quedan entre 5 y 10
+    JG dificultad_alta
+    
+    ; Si quedan menos de 5 -> muy difícil
+    MOV eax, 4    ; Nivel 4 (extremo)
+    JMP aplicar_dificultad
+    
+muy_facil:
+    MOV eax, 1    ; Nivel 1 (fácil)
+    JMP aplicar_dificultad
+    
+dificultad_media:
+    MOV eax, 2    ; Nivel 2 (medio)
+    JMP aplicar_dificultad
+    
+dificultad_alta:
+    MOV eax, 3    ; Nivel 3 (difícil)
+    
+aplicar_dificultad:
+    ; Solo cambiar si es diferente al actual
+    CMP eax, nivel_dificultad
+    JE fin_actualizar
+    
+    ; Establecer nuevo nivel
+    PUSH eax
+    CALL setNivelDificultad
+    
+fin_actualizar:
+    POP ebx
+    RET
+actualizarDificultad ENDP
 
 END
